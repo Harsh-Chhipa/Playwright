@@ -1,0 +1,261 @@
+ # Playwright Test Automation Guide
+
+This guide covers Playwright installation, configuration, test execution, debugging, reporting, and best practices for the OrangeHRM test project.
+
+## Prerequisites
+
+- Node.js 18 or newer
+- npm
+- Access to the OrangeHRM test environment
+
+Verify Node.js and npm:
+
+```bash
+node --version
+npm --version
+```
+
+## Installation
+
+From the project root, install dependencies and browsers:
+
+```bash
+npm install
+npx playwright install
+```
+
+For Linux CI environments:
+
+```bash
+npx playwright install --with-deps
+```
+
+## Recommended Structure
+
+```text
+project-root/
+├── tests/                 # Test specifications
+├── pages/                 # Page Object Model classes
+├── fixtures/              # Shared fixtures and test data
+├── playwright.config.ts   # Playwright configuration
+└── playwright-report/     # Generated HTML report
+```
+
+## Configuration
+
+Example `playwright.config.ts`:
+
+```ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+	testDir: './tests',
+	timeout: 30_000,
+	fullyParallel: true,
+	retries: process.env.CI ? 2 : 0,
+	reporter: [['html', { open: 'never' }], ['list']],
+	use: {
+		baseURL: process.env.BASE_URL || 'http://localhost:3000',
+		headless: true,
+		trace: 'on-first-retry',
+		screenshot: 'only-on-failure',
+		video: 'retain-on-failure',
+	},
+	projects: [
+		{ name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+		{ name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+		{ name: 'webkit', use: { ...devices['Desktop Safari'] } },
+	],
+});
+```
+
+Set the application URL when required:
+
+```powershell
+$env:BASE_URL="https://your-orangehrm-test-url.example"
+```
+
+```bash
+export BASE_URL="https://your-orangehrm-test-url.example"
+```
+
+## Creating a Test
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test('user can open the login page', async ({ page }) => {
+	await page.goto('/login');
+	await expect(page).toHaveTitle(/OrangeHRM/i);
+	await expect(page.getByRole('button', { name: /login/i })).toBeVisible();
+});
+```
+
+Use accessible locators such as `getByRole`, `getByLabel`, and `getByText`. Avoid brittle XPath and long CSS selectors. Prefer web-first assertions because they wait automatically:
+
+```ts
+await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+await expect(page).toHaveURL(/dashboard/);
+```
+
+## Page Object Model
+
+Keep selectors and page actions in reusable classes:
+
+```ts
+import { Page, expect } from '@playwright/test';
+
+export class LoginPage {
+	constructor(private readonly page: Page) {}
+
+	async login(username: string, password: string) {
+		await this.page.getByPlaceholder('Username').fill(username);
+		await this.page.getByPlaceholder('Password').fill(password);
+		await this.page.getByRole('button', { name: /login/i }).click();
+		await expect(this.page).toHaveURL(/dashboard/);
+	}
+}
+```
+
+## Common Commands
+
+```bash
+# Run all tests
+npx playwright test
+
+# Run one file
+npx playwright test tests/OrangeHrm/login.spec.ts
+
+# Run tests matching a title
+npx playwright test -g "login"
+
+# Run a specific browser
+npx playwright test --project=chromium
+
+# Run with a visible browser
+npx playwright test --headed
+
+# Debug with Playwright Inspector
+npx playwright test --debug
+
+# Run serially
+npx playwright test --workers=1
+
+# List tests without running them
+npx playwright test --list
+
+# Open the HTML report
+npx playwright show-report
+
+# Generate test code
+npx playwright codegen http://localhost:3000
+```
+
+## Debugging and Artifacts
+
+Pause a test at a specific point:
+
+```ts
+await page.pause();
+```
+
+Failed tests can produce screenshots, videos, and traces. Open a trace with:
+
+```bash
+npx playwright show-trace test-results/<test-folder>/trace.zip
+```
+
+## Authentication and Secrets
+
+Never commit passwords, tokens, or `.env` files. Use environment variables or CI secrets:
+
+```ts
+const username = process.env.E2E_USERNAME!;
+const password = process.env.E2E_PASSWORD!;
+```
+
+Use a dedicated test account and a saved `storageState` when many tests share authentication.
+
+## Hooks and Fixtures
+
+Use hooks for common setup and cleanup:
+
+```ts
+test.beforeEach(async ({ page }) => {
+	await page.goto('/login');
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+	if (testInfo.status !== testInfo.expectedStatus) {
+		await page.screenshot({ path: `artifacts/${testInfo.title}.png` });
+	}
+});
+```
+
+Use fixtures for reusable setup instead of duplicating code in every test.
+
+## API Testing
+
+Playwright also supports API tests:
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test('health endpoint responds successfully', async ({ request }) => {
+	const response = await request.get('/api/health');
+	expect(response.ok()).toBeTruthy();
+});
+```
+
+## CI/CD Commands
+
+Typical CI steps:
+
+```bash
+npm ci
+npx playwright install --with-deps
+npx playwright test
+```
+
+Publish `playwright-report/` and `test-results/` as CI artifacts. Use a dedicated test environment.
+
+## Useful npm Scripts
+
+Add these scripts to `package.json`:
+
+```json
+{
+	"scripts": {
+		"test": "playwright test",
+		"test:headed": "playwright test --headed",
+		"test:debug": "playwright test --debug",
+		"report": "playwright show-report"
+	}
+}
+```
+
+Run them with:
+
+```bash
+npm test
+npm run test:headed
+npm run report
+```
+
+## Best Practices
+
+1. Keep tests independent, repeatable, and focused.
+2. Use stable, user-facing locators and meaningful test names.
+3. Avoid `waitForTimeout`; wait for a real condition instead.
+4. Isolate test data and clean up created records.
+5. Run tests in parallel only when they do not share mutable state.
+6. Review traces before increasing timeouts.
+7. Keep credentials and generated reports out of source control.
+
+## Troubleshooting
+
+- **Browser not found:** run `npx playwright install`.
+- **Timeout:** verify the URL, locator, application status, and network access.
+- **Flaky test:** remove fixed waits and use web-first assertions.
+- **No report:** run `npx playwright show-report` after the test run.
+- **Port conflict:** stop the existing server or update the configured port.

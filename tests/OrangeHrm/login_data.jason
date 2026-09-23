@@ -1,0 +1,7 @@
+import { url } from "node:inspector";
+
+"url"="https://opensource-demo.orangehrmlive.com/web/index.php/auth/login"
+"Username"="Admin"
+"Password"="admin123"
+"Email id"="admin@gmail.com"
+
